@@ -3,15 +3,16 @@ str1:   resb  100
 op1:    resb  30
 op2:    resb  30
 res:    resb  1000
-flag1:  resb  1
-flag2:  resb  1
+flag1:  resb  2
+flag2:  resb  2
 operator resb 1
 tem_char resb 1
 tem_str: resb 1000
 section .data
 invalid_str:  db "invalid__"
 ten:     dd  10
-lf:      db  10
+lf:      db  "__"
+zero     db  "0__"
 section .text
 
 global  _start
@@ -48,22 +49,22 @@ read_op:    ;read_op(str: eax, op: ebx, flag: ecx)->eax
     cmp  byte[eax], '0'
     jl   .label1 ;小于'0',判断是否与'-'相等
     cmp  byte[eax], '9'
-    jle   read_continue ;既小于等于9也大于等于0，继续读取
+    jle   .read_continue ;既小于等于9也大于等于0，继续读取
 .label1:
     cmp  byte[eax], '-'
-    jne  return_null ;不等于'-'返回空指针
-    jmp  read_continue
-return_null:
+    jne  .return_null ;不等于'-'返回空指针
+    jmp  .read_continue
+.return_null:
     mov  eax, 0
     ret
-read_continue:
+.read_continue:
     mov  byte[ecx], 1
     cmp  byte[eax], '-'
-    jne  not_change_flag
-change_flag:
+    jne  .not_change_flag
+.change_flag:
     inc  eax
     mov  byte[ecx], 0
-not_change_flag:
+.not_change_flag:
     push edx ;edx做循环计数器
     mov  edx, 0
 .loop_1: ;循环直到遇到非数字字符为止
@@ -312,6 +313,121 @@ func_mul: ;mul(op1: eax, op2: ebx, res: ecx)
     mov  ebp, 0
     ret
 
+compare: ;compare(op1: eax, op2: ebx) -> eax 比较两个正序字符串数，op1>op2 -> 1, op1<op2 ->-1, op1==op2 ->0
+    push eax
+    mov  ebp, esp
+    call strlen
+    push eax ; l1: [ebp-4]
+    mov  eax, ebx
+    call strlen
+    push eax ; l2: [ebp-8]
+    mov  eax, [ebp]
+    push ecx
+    push edx
+    mov  ecx, [ebp-4] ;l1
+    mov  edx, [ebp-8] ;l2
+    cmp  ecx, edx
+    jz   .equal
+    jl   .smaller
+.bigger:
+    pop  edx
+    pop  ecx
+    pop  eax
+    pop  eax
+    pop  eax
+    mov  eax, 1
+    mov  ebp, 0
+    ret
+.smaller:
+    pop  edx
+    pop  ecx
+    pop  eax
+    pop  eax
+    pop  eax
+    mov  eax, -1
+    mov  ebp, 0
+    ret
+.equal:
+    mov  ecx, 0 ;ecx循环计数器
+.l:
+    cmp  ecx, [ebp-4]
+    jz   .finish
+    mov  dl, byte[eax+ecx]
+    cmp  dl, byte[ebx+ecx]
+    jg   .bigger
+    jl   .smaller
+    inc  ecx
+    jmp  .l
+.finish:
+    pop  edx
+    pop  ecx
+    pop  eax
+    pop  eax
+    pop  eax
+    mov  eax, 0
+    mov  ebp, 0
+    ret
+
+func_sub: ;sub(op1: eax, op2: ebx) op1 = op1-op2, op1>op2
+    push eax
+    call strlen
+    push eax ;l1: [ebp]
+    mov  ebp, esp
+    mov  eax, ebx
+    call strlen
+    push eax ;l2: [ebp-4]
+    mov  eax, [ebp+4]
+    push ecx
+    mov  ecx, 0 ;ecx为循环计数器
+.l1:
+    cmp  ecx, [ebp-4]
+    jz   .finish_1
+    push edx
+    mov  dl, byte[eax+ecx]
+    cmp  dl, byte[ebx+ecx] ;if(op1[i]>=op2[i])
+    jl   .lend
+    mov  dh, byte[ebx+ecx]
+    sub  dl, dh
+    add  dl, '0'
+    mov  byte[eax+ecx], dl
+    pop  edx
+    inc  ecx
+    jmp  .l1
+.lend: ;借位
+    mov  dh, byte[eax+ecx+1]
+    sub  dh, 1
+    mov  byte[eax+ecx+1], dh
+    mov  dh, byte[eax+ecx]
+    add  dh, 10
+    sub  dh, byte[ebx+ecx]
+    add  dh, '0'
+    mov  byte[eax+ecx], dh
+    inc  ecx
+    pop  edx
+    jmp  .l1
+.finish_1:
+    push edx
+.l2:
+    mov  dl, byte[eax+ecx]
+    cmp  dl, '0'
+    jnl  .finish_2
+    cmp  dl, 0
+    jz   .finish_2
+    mov  dl, '9'
+    mov  dh, byte[eax+ecx+1]
+    sub  dh, 1
+    mov  byte[eax+ecx], dl
+    mov  byte[eax+ecx+1], dh
+    inc  ecx
+    jmp  .l2
+.finish_2:
+    pop  edx
+    pop  ecx
+    pop  ebp
+    pop  ebp
+    pop  eax
+    mov  ebp, 0
+    ret
 
 read:   ;read(str: eax, len: ebx) 读取一行
     pusha
@@ -353,8 +469,8 @@ print:  ;print(str: eax)
 _start:
     mov  byte[invalid_str+7], 10
     mov  byte[invalid_str+8], 0
-.l1:
-    mov  eax, str1
+.l1: ;循环读取 
+    mov  eax, str1 ;初始化操作
     mov  ebx, 0
     mov  ecx, 100
     call memset
@@ -370,32 +486,32 @@ _start:
     mov  ebx, 100
     call read
     cmp  byte[eax], 'q'
-    jz   exit
+    jz   exit ;读到q退出
     mov  ebx, op1
     mov  ecx, flag1
-    call read_op
-    cmp  eax, 0
+    call read_op ;读第一个操作数
+    cmp  eax, 0 ;返回0则为无效输入
     jz   .invalid
     mov  bl, byte[eax]
     mov  byte[operator], bl
     cmp  byte[operator], '+'
     jz  .l2
-    cmp  byte[operator], '*'
+    cmp  byte[operator], '*' ;operator=="+"||operator=="*"否则无效
     jnz  .invalid
-.l2:
+.l2: 
     inc  eax
     mov  ebx, op2
     mov  ecx, flag2
-    call read_op
+    call read_op ;读第二个操作数
     cmp  eax, 0
     jz   .invalid
-    cmp  byte[eax], 0
+    cmp  byte[eax], 0 ;读完后字符串还有剩余,则无效
     jnz  .invalid
     cmp  byte[operator], '*'
     jz   .l_mul
     mov  cl, byte[flag2]
     cmp  byte[flag1], cl
-    jnz  .l_sub
+    jnz  .l_sub ;符号为＋且两数符号不同,进入减法
     mov  eax, op1
     call reverse
     mov  eax, op2
@@ -404,7 +520,12 @@ _start:
     mov  ebx, op2
     call func_add
     cmp  byte[flag1], 1
-
+    jz   .print_add ;结果为正数,直接打印
+    mov  eax, flag1
+    mov  byte[eax], '-'
+    mov  byte[eax+1], 0
+    call print ;结果为负,打印负号
+.print_add:
     mov  eax, op2
     call reverse
     mov  eax, op2
@@ -412,9 +533,75 @@ _start:
     mov  byte[op2+eax], 10
     mov  byte[op2+eax+1], 0
     mov  eax, op2
-    call print
+    call print ;打印结果
     jmp .l1
 .l_sub:
+    mov  eax, op1
+    mov  ebx, op2
+    call compare
+    cmp  eax, 0
+    jz   .equal ;两数相等,直接输出0
+    jg   .bigger
+    jmp  .smaller
+.equal:
+    mov  eax, zero
+    mov  byte[eax+1], 10
+    mov  byte[eax+2], 0
+    call print
+    jmp  .l1
+.bigger:
+    mov  eax, op1
+    call reverse
+    mov  eax, op2
+    call reverse
+    mov  eax, op1
+    mov  ebx, op2
+    call func_sub
+    mov  eax, op1
+    call reverse
+    cmp  byte[flag1], 1
+    jz   .print_sub
+    mov  eax, flag1
+    mov  byte[eax], '-'
+    mov  byte[eax+1], 0
+    call print ;结果为负,打印负号
+    mov  eax, op1
+    jmp  .print_sub
+.smaller:
+    mov  eax, op1
+    call reverse
+    mov  eax, op2
+    call reverse
+    mov  eax, op2
+    mov  ebx, op1
+    call func_sub
+    mov  eax, op2
+    call reverse
+    cmp  byte[flag2], 1
+    jz   .print_sub
+    mov  eax, flag2
+    mov  byte[eax], '-'
+    mov  byte[eax+1], 0
+    call print ;结果为负,打印负号
+    mov  eax, op2
+.print_sub:
+    push ebx
+    push eax
+    mov  ebx, eax
+    call strlen
+    mov  byte[ebx+eax], 10
+    mov  byte[ebx+eax+1], 0
+    pop  eax
+    pop  ebx
+.remove_zero: ;除去减法残留的0
+    cmp  byte[eax], '0'
+    jnz  .remove_finish
+    inc  eax
+    jmp  .remove_zero
+.remove_finish:
+    call print
+    jmp  .l1
+
 .l_mul:
     mov  eax, op1
     call reverse
@@ -426,9 +613,19 @@ _start:
     call func_mul
     mov  eax, res
     call reverse
+    mov  al, byte[flag1]
+    cmp  al, byte[flag2]
+    jz   .mul_print
+    mov  eax, flag2
+    mov  byte[eax], '-'
+    mov  byte[eax+1], 0
+    call print ;结果为负,打印负号
+.mul_print:
     mov  eax, res
     call print
     mov  eax, lf
+    mov  byte[eax], 10
+    mov  byte[eax+1], 0
     call print
     jmp  .l1
 .invalid:

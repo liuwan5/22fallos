@@ -185,7 +185,10 @@ int main(){
                     }else{
                         int cmp_result = cmp(op1, op2);
                         bool ans_flag = flag1;
-                        if(cmp_result==0)printf("0\n");
+                        if(cmp_result==0){
+                            printf("0\n");
+                            continue;
+                        }
                         char* p1 = op1;
                         char* p2 = op2;
                         if(cmp_result==-1){
