@@ -616,12 +616,18 @@ _start:
     mov  al, byte[flag1]
     cmp  al, byte[flag2]
     jz   .mul_print
+    cmp  byte[res], '0'
+    jz   .mul_print
     mov  eax, flag2
     mov  byte[eax], '-'
     mov  byte[eax+1], 0
     call print ;结果为负,打印负号
 .mul_print:
     mov  eax, res
+    cmp  byte[eax], '0'
+    jnz  .no_zero
+    mov  byte[eax+1], 0
+.no_zero:
     call print
     mov  eax, lf
     mov  byte[eax], 10

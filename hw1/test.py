@@ -2,6 +2,7 @@ import os
 import random
 import subprocess
 import time
+import numpy as np
 
 result_file = open('res.txt', 'w')
 expect = []
@@ -21,7 +22,11 @@ for i in range(0, 10000):
     expect.append(str(expect_add))
     expect.append(str(expect_mul))
     proc.stdin.write(op1+b'+'+op2+b'\n')
+    proc.stdin.flush()
+    time.sleep(0.1)
     proc.stdin.write(op1+b'*'+op2+b'\n')
+    proc.stdin.flush()
+    time.sleep(0.1)
 proc.stdin.write(b'q\n')
 proc.stdin.flush()
 proc.stdin.close()
