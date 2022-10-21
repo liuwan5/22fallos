@@ -113,6 +113,7 @@ reverse:  ;reverse(str: eax)
     ret
     
 func_add: ;add(op1: eax, op2: ebx) op2 = op1+op2
+    push ebp
     mov  ebp, esp
     push eax
     call strlen
@@ -205,6 +206,7 @@ func_add: ;add(op1: eax, op2: ebx) op2 = op1+op2
     pop  ebp
     pop  ebp
     pop  eax
+    pop  ebp
     ret
 
 func_mul: ;mul(op1: eax, op2: ebx, res: ecx)
@@ -226,6 +228,7 @@ func_mul: ;mul(op1: eax, op2: ebx, res: ecx)
     push edx
     mov  edx, eax
     call strlen
+    push ebp
     push eax ;l1->[ebp]
     mov  ebp, esp
     mov  eax, ebx
@@ -309,11 +312,12 @@ func_mul: ;mul(op1: eax, op2: ebx, res: ecx)
     pop  ebp
     pop  ebp
     pop  ebp
+    pop  ebp
     pop  edx
-    mov  ebp, 0
     ret
 
 compare: ;compare(op1: eax, op2: ebx) -> eax 比较两个正序字符串数，op1>op2 -> 1, op1<op2 ->-1, op1==op2 ->0
+    push ebp
     push eax
     mov  ebp, esp
     call strlen
@@ -336,7 +340,7 @@ compare: ;compare(op1: eax, op2: ebx) -> eax 比较两个正序字符串数，op
     pop  eax
     pop  eax
     mov  eax, 1
-    mov  ebp, 0
+    pop  ebp
     ret
 .smaller:
     pop  edx
@@ -345,7 +349,7 @@ compare: ;compare(op1: eax, op2: ebx) -> eax 比较两个正序字符串数，op
     pop  eax
     pop  eax
     mov  eax, -1
-    mov  ebp, 0
+    pop  ebp
     ret
 .equal:
     mov  ecx, 0 ;ecx循环计数器
@@ -365,22 +369,23 @@ compare: ;compare(op1: eax, op2: ebx) -> eax 比较两个正序字符串数，op
     pop  eax
     pop  eax
     mov  eax, 0
-    mov  ebp, 0
+    pop  ebp
     ret
 
 func_sub: ;sub(op1: eax, op2: ebx) op1 = op1-op2, op1>op2
+    push ebp
+    mov  ebp, esp
     push eax
     call strlen
-    push eax ;l1: [ebp]
-    mov  ebp, esp
+    push eax ;l1: [ebp-8]
     mov  eax, ebx
     call strlen
-    push eax ;l2: [ebp-4]
-    mov  eax, [ebp+4]
+    push eax ;l2: [ebp-12]
+    mov  eax, [ebp-4]
     push ecx
     mov  ecx, 0 ;ecx为循环计数器
 .l1:
-    cmp  ecx, [ebp-4]
+    cmp  ecx, [ebp-12]
     jz   .finish_1
     push edx
     mov  dl, byte[eax+ecx]
@@ -426,7 +431,7 @@ func_sub: ;sub(op1: eax, op2: ebx) op1 = op1-op2, op1>op2
     pop  ebp
     pop  ebp
     pop  eax
-    mov  ebp, 0
+    pop  ebp
     ret
 
 read:   ;read(str: eax, len: ebx) 读取一行
