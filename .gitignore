@@ -1,5 +1,9 @@
-./*/.vscode/*
+*/.vscode/*
 *.txt
 *.bin
 *.out
 *.img
+*/build/*
+*/.cache/*
+build/*
+.vscode/*

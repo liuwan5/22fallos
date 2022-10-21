@@ -143,7 +143,7 @@ int main(){
     char str[100];
     char res[100];
     bool flag1, flag2;
-    char operator;
+    char ope;
     char* p = str;
     while(1){
         scanf("%s", str);
@@ -157,8 +157,8 @@ int main(){
                 printf("invalid\n");
                 continue;
             }
-            operator = *p;
-            if(operator!='+'&&operator!='*'){
+            ope = *p;
+            if(ope!='+'&&ope!='*'){
                 printf("invalid\n");
                 continue;
             } 
@@ -172,7 +172,7 @@ int main(){
                 printf("invalid\n");
                 continue;
             }
-            switch (operator) {
+            switch (ope) {
                 case '+':
                     if(flag1==flag2){
                         reverse(op1);
