@@ -11,9 +11,9 @@ ops = []
 name = input("Please input your program's name:")
 flag = int(input("Please input your test range(1 for no negative, 0 for all):"))
 proc = subprocess.Popen('./'+name, shell = True, stdin = subprocess.PIPE, stdout=result_file)
-for i in range(0, 10000):
-    op1 = random.randint(-1000000000000000000000 if flag == 0 else 0, 1000000000000000000000)
-    op2 = random.randint(-1000000000000000000000 if flag == 0 else 0, 1000000000000000000000)
+for i in range(0, 100):
+    op1 = random.randint(-10000000 if flag == 0 else 0, 100000000)
+    op2 = random.randint(-10000000 if flag == 0 else 0, 1000000000)
     ops.append([op1, op2])
     expect_add = op1 + op2
     expect_mul = op1 * op2
@@ -23,10 +23,10 @@ for i in range(0, 10000):
     expect.append(str(expect_mul))
     proc.stdin.write(op1+b'+'+op2+b'\n')
     proc.stdin.flush()
-    time.sleep(0.1)
+    time.sleep(0.01)
     proc.stdin.write(op1+b'*'+op2+b'\n')
     proc.stdin.flush()
-    time.sleep(0.1)
+    time.sleep(0.01)
 proc.stdin.write(b'q\n')
 proc.stdin.flush()
 proc.stdin.close()
