@@ -7,3 +7,6 @@
 */.cache/*
 build/*
 .vscode/*
+*/.idea/*
+*/cmake-build-debug/*
+*/mount/*
