@@ -15,12 +15,19 @@
   目录项
 */
 struct file_entry {
-  char *name;               //文件名
+  const char *name;               //文件名
   uint8_t attribute;        //文件属性
-  uint32_t cluster_number;  //文件第一个簇号
+  uint32_t cluster_number;  //文件第一个簇号，约定根目录区为0
   uint32_t file_size;       //文件大小
-  file_entry(char *n, uint8_t attr, uint32_t clus, uint32_t fs)
-      : name(n), attribute(attr), cluster_number(clus), file_size(fs) {}
+  std::vector<file_entry *> child_files;  //子文件
+  std::vector<file_entry *> child_dirs;   //子目录
+  bool dot_flag;  //标记该目录项下是否有'.'和'..'目录
+  file_entry(const char *n, uint8_t attr, uint32_t clus, uint32_t fs)
+      : name(n),
+        attribute(attr),
+        cluster_number(clus),
+        file_size(fs),
+        dot_flag(false) {}
 };
 
 const int SECTOR_SIZE = 512;  //扇区大小，单位为字节
@@ -31,20 +38,43 @@ std::ifstream image;
 void read_fat();
 void my_print(const char *str);
 std::vector<file_entry> *read_file_entries(std::ifstream &image, size_t pos);
-int ls(bool lflag = false, const char *path = "");
-file_entry *find(const char *path);
-void cat(const char *path);
+int ls(bool lflag, const char *path, file_entry *root_entry);
+file_entry *find(const char *path, file_entry *root_entry);
+void cat(const char *path, file_entry *root_entry);
 inline int cal_pos_from_cluster_number(int cluster_number) {
   return (1 + 9 + 9 + 14 + cluster_number - 2) * SECTOR_SIZE;
 }
-int handle_command();
+int handle_command(file_entry *root_entry);
 bool validate_path(const char *path);
+file_entry *gen_root_entry() {
+  file_entry *root_entry = new file_entry("", 0x10, 0, 0);
+  return root_entry;
+}
+void gen_file_tree(file_entry *root) {  //传入目录项，生成文件树
+  std::vector<file_entry> *root_child_entries = read_file_entries(
+      image, cal_pos_from_cluster_number(root->cluster_number));
+  for (auto &entry : *root_child_entries) {
+    if (entry.attribute == 0x20) {
+      root->child_files.push_back(&entry);
+    }
+    if (entry.attribute == 0x10) {
+      root->child_dirs.push_back(&entry);
+      if (entry.name[0] == '.') {
+        root->dot_flag = true;
+      } else {
+        gen_file_tree(&entry);
+      }
+    }
+  }
+}
 
 int main() {
   image.open("../a.img", std::ios::binary | std::ios::in);
   image.seekg(SECTOR_SIZE, std::ios::cur);  //跳过boot区域
   read_fat();
-  while (handle_command())
+  file_entry *root = gen_root_entry();
+  gen_file_tree(root);
+  while (handle_command(root))
     ;
   return 0;
 }
@@ -58,7 +88,7 @@ bool validate_path(const char *path) {
   return true;
 }
 
-int handle_command() {
+int handle_command(file_entry *root_entry) {
   my_print(">");
   std::string command_line;
   getline(std::cin, command_line);
@@ -90,7 +120,7 @@ int handle_command() {
         }
       }
     }
-    ls(lflag, target_path.empty() ? "" : target_path.c_str());
+    ls(lflag, target_path.empty() ? "" : target_path.c_str(), root_entry);
   } else {
     if (commands[0] == "cat") {
       if (commands.size() != 2) {
@@ -101,7 +131,7 @@ int handle_command() {
           my_print("invalid path!\n");
           return -1;
         } else {
-          cat(commands[1].c_str());
+          cat(commands[1].c_str(), root_entry);
         }
       }
     } else if (commands[0] == "exit") {
@@ -133,37 +163,34 @@ void read_fat() {
   }
 }
 
-file_entry *find(const char *path) {  //返回目标
-  if (strlen(path) == 0) return 0;    // 0表示目标为根目录区法i
+file_entry *find(const char *path,
+                 file_entry *root_entry) {  //传入目标路径和根目录项，返回目标项
+  if (strlen(path) == 0) return root_entry;
+  if (root_entry->child_dirs.empty() && root_entry->child_files.empty())
+    return nullptr;
   const char *p = path;
-  int pos = (1 + 9 + 9) * SECTOR_SIZE;
-  file_entry *target = nullptr;
-  std::vector<file_entry> *entries;
-  while (strlen(p) > 1) {  //逐层寻找，找到目标位置
-    entries = read_file_entries(image, pos);  //读取当前层的子目录/文件
-    std::string dir_name;
-    p++;  //跳过'/'
-    while (*p != '/' && *p != '\0') {
-      dir_name += *p;
-      p++;
-    }
-    for (file_entry &entry : *entries) {
-      if (std::string(entry.name) ==
-          dir_name) {  //在当前层的子目录/文件中找到目标
-        pos = cal_pos_from_cluster_number(entry.cluster_number);
-        target = &entry;
-      }
-    }
+  std::string tem_name;
+  p++;
+  while (*p != '/' && *p != '\0') {
+    tem_name += *p;
+    p++;
   }
-  return target;
+  for (auto file : root_entry->child_files) {
+    if (tem_name == std::string(file->name)) return file;
+  }
+  for (auto dir : root_entry->child_dirs) {
+    if (tem_name == std::string(dir->name)) return find(p, dir);
+  }
+  return nullptr;
 }
 
-int ls(bool lflag, const char *path) {
+int ls(bool lflag, const char *path, file_entry *root_entry) {
   const char *p = path;
   char *out_str = new char[100];
   std::vector<file_entry> *entries;
+  file_entry* target = nullptr;
   if (strlen(path) > 0) {
-    file_entry *target = find(path);
+    target = find(path, root_entry);
     if (target == nullptr) {
       my_print("Target not found!\n");
       return -1;
@@ -172,60 +199,34 @@ int ls(bool lflag, const char *path) {
       my_print("Target is not a dir!\n");
       return -1;
     }
-    int target_cluster = target->cluster_number;
-    entries = read_file_entries(
-        image, target_cluster == 0
-                   ? (1 + 9 + 9) * SECTOR_SIZE
-                   : cal_pos_from_cluster_number(
-                         target_cluster));  //读取目标目录的子目录、文件
   } else {
-    entries = read_file_entries(image, (1 + 9 + 9) * SECTOR_SIZE);
-  }
-  std::vector<file_entry *> child_dirs;
-  std::vector<file_entry *> files;
-  bool dot_flag = false;
-  for (auto &entry : *entries) {
-    if (entry.attribute == 0x20) {
-      files.push_back(&entry);
-    }
-    if (entry.attribute == 0x10) {
-      if (entry.name[0] == '.') dot_flag = true;
-      child_dirs.push_back(&entry);
-    }
+    target = root_entry;
   }
   if (!lflag)
     sprintf(out_str, "%s/:\n", path);
   else {
-    int child_dir_size = child_dirs.size();
-    if (dot_flag) child_dir_size -= 2;
-    sprintf(out_str, "%s/ %d %d:\n", path, child_dir_size, files.size());
+    int child_dir_size = target->child_dirs.size();
+    if (target->dot_flag) child_dir_size -= 2;
+    sprintf(out_str, "%s/ %d %ld:\n", path, child_dir_size,
+            target->child_files.size());
   }
   my_print(out_str);
-  for (auto child_dir : child_dirs) {
+  for (auto child_dir : target->child_dirs) {
     if (!lflag)
       sprintf(out_str, "\033[31m%s\033[0m  ", child_dir->name);
     else {
       if (child_dir->name[0] == '.') {
         sprintf(out_str, "\033[31m%s\033[0m\n", child_dir->name);
       } else {
-        std::vector<file_entry> *child_entries = entries = read_file_entries(
-            image, cal_pos_from_cluster_number(child_dir->cluster_number));
-        int file_counter = 0, child_dir_counter = 0;
-        for (auto &entry : *entries) {
-          if (entry.attribute == 0x20) {
-            file_counter++;
-          }
-          if (entry.attribute == 0x10) {
-            if (entry.name[0] != '.') child_dir_counter++;
-          }
-        }
-        sprintf(out_str, "\033[31m%s\033[0m %d %d\n", child_dir->name,
-                child_dir_counter, file_counter);
+        sprintf(out_str, "\033[31m%s\033[0m %ld %ld\n", child_dir->name,
+                child_dir->dot_flag ? child_dir->child_dirs.size() - 2
+                                    : child_dir->child_dirs.size(),
+                child_dir->child_files.size());
       }
     }
     my_print(out_str);
   }
-  for (auto file : files) {
+  for (auto file : target->child_files) {
     if (!lflag)
       sprintf(out_str, "\033[0m%s  ", file->name);
     else
@@ -234,18 +235,22 @@ int ls(bool lflag, const char *path) {
   }
   if (!lflag) my_print("\n");
   delete[] out_str;
-  for (auto child : child_dirs) {
+  for (auto child : target->child_dirs) {
     if (child->name[0] == '.') continue;
     std::string root_path = std::string(path);
     std::string child_name = root_path + '/' + std::string(child->name);
-    ls(lflag, child_name.c_str());
+    ls(lflag, child_name.c_str(), root_entry);
   }
 
   return 0;
 }
 
 std::vector<file_entry> *read_file_entries(std::ifstream &image, size_t pos) {
-  image.seekg(pos, std::ios::beg);
+  if (pos == cal_pos_from_cluster_number(0)) {
+    image.seekg((1 + 9 + 9) * SECTOR_SIZE, std::ios::beg);
+  } else {
+    image.seekg(pos, std::ios::beg);
+  }
   std::vector<file_entry> *entries = new std::vector<file_entry>();
   while (true) {
     image.read(buf, 32);
@@ -278,8 +283,8 @@ std::vector<file_entry> *read_file_entries(std::ifstream &image, size_t pos) {
   return entries;
 }
 
-void cat(const char *path) {
-  file_entry *target = find(path);
+void cat(const char *path, file_entry *root_entry) {
+  file_entry *target = find(path, root_entry);
   if (target == nullptr) {
     my_print("File not found!\n");
     return;
