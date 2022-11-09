@@ -1,5 +1,6 @@
 #include <cstdio>
+#include <iostream>
 
 void my_print(const char* str){
-    printf("%s", str);
+    std::cout<<str;
 }
