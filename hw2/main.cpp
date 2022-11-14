@@ -1,3 +1,4 @@
+#include <bits/stdint-uintn.h>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -9,13 +10,14 @@
 #include <istream>
 #include <ostream>
 #include <string>
+#include <sys/types.h>
 #include <vector>
 
 /*
   目录项
 */
 struct file_entry {
-  const char *name;               //文件名
+  const char *name;         //文件名
   uint8_t attribute;        //文件属性
   uint32_t cluster_number;  //文件第一个簇号，约定根目录区为0
   uint32_t file_size;       //文件大小
@@ -30,17 +32,28 @@ struct file_entry {
         dot_flag(false) {}
 };
 
+struct BPB {
+  uint16_t BytsPerSec;  //每扇区字节数
+  uint8_t SecPerClus;  //每簇扇区数
+  uint16_t RsvdSecCnt;  // Boot记录占用的扇区数
+  uint8_t NumFATs;     // FAT表个数
+  uint16_t RootEntCnt;  //根目录最大文件数
+  uint16_t FATSz;       // FAT扇区数
+};
+
 const int SECTOR_SIZE = 512;  //扇区大小，单位为字节
 char buf[SECTOR_SIZE];        //缓冲区，最大读取一个扇区
 short fat_entry[10000];       // fat_entry,存放fat项
 std::ifstream image;
+BPB  BPB_record; //BPB 全局唯一
 
 void read_fat();
-void my_print(const char *str);
+extern "C" void my_print(const char *str);
 std::vector<file_entry> *read_file_entries(std::ifstream &image, size_t pos);
 int ls(bool lflag, const char *path, file_entry *root_entry);
 file_entry *find(const char *path, file_entry *root_entry);
 void cat(const char *path, file_entry *root_entry);
+const char *parse_path(const char *original_path);
 inline int cal_pos_from_cluster_number(int cluster_number) {
   return (1 + 9 + 9 + 14 + cluster_number - 2) * SECTOR_SIZE;
 }
@@ -68,8 +81,19 @@ void gen_file_tree(file_entry *root) {  //传入目录项，生成文件树
   }
 }
 
+void read_BPB(){
+  image.seekg(0, std::ios::beg);
+  image.read(buf, SECTOR_SIZE);
+  BPB_record.BytsPerSec = *(uint16_t*)(buf+11);
+  BPB_record.SecPerClus = *(uint8_t*)(buf+13);
+  BPB_record.RsvdSecCnt = *(uint16_t*)(buf+14);
+  BPB_record.NumFATs = *(uint8_t*)(buf+16);
+  BPB_record.RootEntCnt = *(uint16_t*)(buf+17);
+  BPB_record.FATSz = *(uint16_t*)(buf+19);
+}
+
 int main() {
-  image.open("../a.img", std::ios::binary | std::ios::in);
+  image.open("./a.img", std::ios::binary | std::ios::in);
   image.seekg(SECTOR_SIZE, std::ios::cur);  //跳过boot区域
   read_fat();
   file_entry *root = gen_root_entry();
@@ -92,13 +116,17 @@ int handle_command(file_entry *root_entry) {
   my_print(">");
   std::string command_line;
   getline(std::cin, command_line);
-  std::vector<std::string> commands(0);
-  commands.emplace_back("");
+  std::vector<std::string> commands;
+  bool flag = true;  //标记当前字符前是否为空格，初始认为前面是空格
   for (int i = 0; i < command_line.length(); i++) {
     if (command_line[i] != ' ') {
+      if (flag) {
+        flag = false;
+        commands.push_back("");
+      }
       commands[commands.size() - 1] += command_line[i];
     } else {
-      commands.push_back("");
+      if (!flag) flag = true;
     }
   }
   std::string target_path;
@@ -107,20 +135,26 @@ int handle_command(file_entry *root_entry) {
     bool path_flag = false;
     for (int i = 1; i < commands.size(); i++) {
       if (commands[i][0] == '-') {
-        if (commands[i][1] == 'l') {
-          lflag = true;
-        } else {
-          my_print("Error: unrecognized argument\n");
+        for (int j = 1; i < commands[j].size(); j++) {
+          if (commands[i][j] == 'l') {
+            lflag = true;
+          } else {
+            my_print("Error: unrecognized argument\n");
+            return -1;
+          }
         }
+
       } else {
         if (path_flag) {
           my_print("Error: more than 1 path\n");
+          return -1;
         } else {
           target_path = commands[i];
         }
       }
     }
-    ls(lflag, target_path.empty() ? "" : target_path.c_str(), root_entry);
+    ls(lflag, target_path.empty() ? "" : parse_path(target_path.c_str()),
+       root_entry);
   } else {
     if (commands[0] == "cat") {
       if (commands.size() != 2) {
@@ -131,7 +165,7 @@ int handle_command(file_entry *root_entry) {
           my_print("invalid path!\n");
           return -1;
         } else {
-          cat(commands[1].c_str(), root_entry);
+          cat(parse_path(commands[1].c_str()), root_entry);
         }
       }
     } else if (commands[0] == "exit") {
@@ -188,9 +222,9 @@ int ls(bool lflag, const char *path, file_entry *root_entry) {
   const char *p = path;
   char *out_str = new char[100];
   std::vector<file_entry> *entries;
-  file_entry* target = nullptr;
+  file_entry *target = nullptr;
   if (strlen(path) > 0) {
-    target = find(path, root_entry);
+    target = find(path, root_entry);  //找到当前目标
     if (target == nullptr) {
       my_print("Target not found!\n");
       return -1;
@@ -239,13 +273,15 @@ int ls(bool lflag, const char *path, file_entry *root_entry) {
     if (child->name[0] == '.') continue;
     std::string root_path = std::string(path);
     std::string child_name = root_path + '/' + std::string(child->name);
-    ls(lflag, child_name.c_str(), root_entry);
+    ls(lflag, child_name.c_str(), root_entry);  //递归遍历每个子目录
   }
 
   return 0;
 }
 
-std::vector<file_entry> *read_file_entries(std::ifstream &image, size_t pos) {
+std::vector<file_entry> *read_file_entries(
+    std::ifstream &image,
+    size_t pos) {  //根据给出的在磁盘中的位置，读取一扇区大小的目录项
   if (pos == cal_pos_from_cluster_number(0)) {
     image.seekg((1 + 9 + 9) * SECTOR_SIZE, std::ios::beg);
   } else {
@@ -267,6 +303,7 @@ std::vector<file_entry> *read_file_entries(std::ifstream &image, size_t pos) {
     }
     if (buf[8] != 0x20) {
       *ptr = '.';
+      ptr++;
       for (int i = 0; i < 3; i++) {
         if (buf[i + 8] != 0) {
           *ptr = buf[i + 8];
@@ -295,6 +332,7 @@ void cat(const char *path, file_entry *root_entry) {
   }
   int clus_no = target->cluster_number;
   if (clus_no == 0) return;
+  std::string tem_char(2, '\0');
   while (clus_no < 0xFF8) {
     if (clus_no == 0xFF7) {
       my_print("File is broken!\n");
@@ -302,9 +340,49 @@ void cat(const char *path, file_entry *root_entry) {
     }
     image.seekg(cal_pos_from_cluster_number(clus_no), std::ios::beg);
     image.read(buf, SECTOR_SIZE);
+
     for (char c : buf) {
-      putchar(c);
+      tem_char[0] = c;
+      tem_char[1] = 0;
+      my_print(tem_char.c_str());
     }
+
     clus_no = fat_entry[clus_no];
   }
+  tem_char[0] = '\n';
+  my_print(tem_char.c_str());
+}
+
+const char *parse_path(
+    const char *original_path) {  //对路径进行处理，去掉路径中的'.'和'..'
+  std::vector<std::string> directories;  //存放当前已解析出的目录的栈
+  const char *p = original_path;
+  if (*p == '/') p++;
+  while (*p != 0) {
+    std::string dir_name;
+    while (*p != '/' && *p != 0) {
+      dir_name += *p;
+      p++;
+    }
+    if (*p != 0) p++;
+    if (dir_name == "")
+      continue;
+    else if (dir_name == ".")
+      continue;
+    else if (dir_name == "..") {
+      if (directories.empty())
+        continue;
+      else {
+        directories.pop_back();
+      }
+    } else {
+      directories.emplace_back(dir_name);
+    }
+  }
+  std::string *result = new std::string("");
+  for (std::string &str : directories) {
+    *result += '/';
+    *result += str;
+  }
+  return result->c_str();
 }
