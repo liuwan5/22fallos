@@ -43,9 +43,10 @@ struct BPB {
 
 const int SECTOR_SIZE = 512;  //扇区大小，单位为字节
 char buf[SECTOR_SIZE];        //缓冲区，最大读取一个扇区
-short fat_entry[10000];       // fat_entry,存放fat项
+uint16_t fat_entry[10000];       // fat_entry,存放fat项
 std::ifstream image;
 BPB  BPB_record; //BPB 全局唯一
+uint16_t root_ent_sz; //根目录区占用扇区数
 
 void read_fat();
 extern "C" void my_print(const char *str);
@@ -55,8 +56,9 @@ file_entry *find(const char *path, file_entry *root_entry);
 void cat(const char *path, file_entry *root_entry);
 const char *parse_path(const char *original_path);
 inline int cal_pos_from_cluster_number(int cluster_number) {
-  return (1 + 9 + 9 + 14 + cluster_number - 2) * SECTOR_SIZE;
+  return (1 + 9 + 9 + root_ent_sz + cluster_number - 2) * SECTOR_SIZE;
 }
+
 int handle_command(file_entry *root_entry);
 bool validate_path(const char *path);
 file_entry *gen_root_entry() {
@@ -93,8 +95,9 @@ void read_BPB(){
 }
 
 int main() {
-  image.open("./a.img", std::ios::binary | std::ios::in);
-  image.seekg(SECTOR_SIZE, std::ios::cur);  //跳过boot区域
+  image.open("./a2.img", std::ios::binary | std::ios::in);
+  read_BPB();
+  root_ent_sz = (BPB_record.RootEntCnt*32+512-1)/512;
   read_fat();
   file_entry *root = gen_root_entry();
   gen_file_tree(root);
@@ -187,10 +190,11 @@ int handle_command(file_entry *root_entry) {
   读取fat表项中的内容
 */
 void read_fat() {
+  image.seekg(SECTOR_SIZE, std::ios::beg);
   const int FAT_SIZE = 9;
   for (int i = 0; i < (FAT_SIZE * SECTOR_SIZE * 2 / 3); i += 2) {
     image.read(buf, 3);
-    buf[4] = 0;
+    buf[3] = 0;
     uint32_t tem = *(uint32_t *)buf;
     fat_entry[i] = tem & 0xfff;
     fat_entry[i + 1] = tem >> 12;

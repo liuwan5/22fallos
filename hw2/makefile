@@ -4,3 +4,7 @@ Main: main.cpp my_print.asm
 	rm -rf build/my_print.o
 clean:
 	rm -rf build/*
+
+run: Main
+
+	build/main
